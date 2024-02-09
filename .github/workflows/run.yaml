@@ -3,8 +3,11 @@ on:
   workflow_dispatch:
     inputs:
       concurrent:
-        description: "Number of jobs to concurrently run to pick up lists"
+        description: "Max number of jobs to concurrently run to pick up lists"
         default: "10"
+      perjob:
+        description: "Max number of packages to build in each job before reporting back"
+        default: "15"
   push:
     paths:
       - tobuild.txt
@@ -25,7 +28,7 @@ jobs:
       matrix: ${{ steps.matrix.outputs.dispatchlists }}
       time: ${{ steps.uniq.outputs.time }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Get timestamp for list
         id: uniq
@@ -34,7 +37,7 @@ jobs:
 
       - name: Initialize to build list
         id: claim
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 20
@@ -68,13 +71,13 @@ jobs:
           echo tok=$(echo "$TOK") >> $GITHUB_OUTPUT
 
       - name: Checkout with new token
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           token: ${{ steps.tokenlist.outputs.tok }}
           persist-credentials: true
 
       - name: Switch to self-hosted
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
@@ -96,7 +99,7 @@ jobs:
             git push
 
       - name: Add write_packages log
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
@@ -121,7 +124,7 @@ jobs:
 
 
       - name: Update list
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
@@ -152,12 +155,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Free space check
         run: |
           echo "Free space:"
           df -h
+
+      - name: Get R, OS, and Bioc versions
+        id: versions
+        run: |
+          echo os=$(cat bioc_build/os) >> $GITHUB_OUTPUT
+          echo r=$(cat bioc_build/r) >> $GITHUB_OUTPUT
+          echo bioc=$(cat bioc_build/bioc) >> $GITHUB_OUTPUT
+          echo library=$(echo "tmp/built") >> $GITHUB_OUTPUT
+          echo platform=$(cat platform) >> $GITHUB_OUTPUT
+          echo sanitizedplatform=$(cat platform | sed "s/[^[:alnum:]]/-/g") >> $GITHUB_OUTPUT
+          echo arch=$(cat arch) >> $GITHUB_OUTPUT
+          echo runstart=$(cat runstarttime) >> $GITHUB_OUTPUT
+          echo dispatchlistpath=$(echo "DISPATCHPATH=logs/$(cat runstarttime)/logs/dispatchlists/${{needs.getlistformatrix.outputs.time }}_${{matrix.dispatchlist}}") >> $GITHUB_OUTPUT
 
       - name: Get Current Job Log URL
         uses: Tiryoh/gha-jobid-action@v0
@@ -169,7 +185,7 @@ jobs:
           per_page: 100
 
       - name: Push run_id
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
@@ -200,19 +216,6 @@ jobs:
             git add logs/$(cat runstarttime)
             git commit -m "Push run_id for ${{needs.getlistformatrix.outputs.time }}_${{matrix.dispatchlist}}"
             git push
-
-      - name: Get R, OS, and Bioc versions
-        id: versions
-        run: |
-          echo os=$(cat bioc_build/os) >> $GITHUB_OUTPUT
-          echo r=$(cat bioc_build/r) >> $GITHUB_OUTPUT
-          echo bioc=$(cat bioc_build/bioc) >> $GITHUB_OUTPUT
-          echo library=$(echo "tmp/built") >> $GITHUB_OUTPUT
-          echo platform=$(cat platform) >> $GITHUB_OUTPUT
-          echo sanitizedplatform=$(cat platform | sed "s/[^[:alnum:]]/-/g") >> $GITHUB_OUTPUT
-          echo arch=$(cat arch) >> $GITHUB_OUTPUT
-          echo runstart=$(cat runstarttime) >> $GITHUB_OUTPUT
-          echo dispatchlistpath=$(echo "DISPATCHPATH=logs/$(cat runstarttime)/logs/dispatchlists/${{needs.getlistformatrix.outputs.time }}_${{matrix.dispatchlist}}") >> $GITHUB_OUTPUT
 
       - name: Get deps list
         id: deps
@@ -305,7 +308,7 @@ jobs:
           echo pkg=$(ls /tmp/tars/ | grep "^${{matrix.pkg}}_" | sed 's#/tmp/tars/##g') >> $GITHUB_OUTPUT
 
       - name: Push failed packages
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
@@ -334,7 +337,7 @@ jobs:
           input-list: "${{steps.deps.outputs.dispatchpkgs}}"
 
       - name: Install rclone & add rclone conf file
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         env:
             RCLONE_CONF: ${{secrets.RCLONE_CONF}}
         with:
@@ -352,7 +355,7 @@ jobs:
             fi
 
       - name: Rclone push package
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 20
           max_attempts: 3
@@ -378,13 +381,13 @@ jobs:
           echo tok=$(echo "$TOK") >> $GITHUB_OUTPUT
 
       - name: Checkout with token
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           token: ${{ steps.tokenbuilt.outputs.tok }}
           persist-credentials: true
 
       - name: Rclone mark as pushed
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 10
           max_attempts: 50
